@@ -1,111 +1,75 @@
-
-
-
-const { Ably } = require('ably');
+const express = require('express');
+const Ably = require('ably');
 const TokenSystem = require('./TokenSystem');
-
+const StorageService = require('./StorageService');
+const app =express()
+const logger = console; // Replace with a proper logger as needed
 const ably = new Ably.Realtime('UxabtA.CBXjig:QopuxP1Nd95vUJfnqYJGzpoh2s1URPWOCDHeeuAdyMk'); // 
+// Route to get the current token balance
+app.get('/balance/:account_id', (req, res) => {
+    const accountId = req.params.account_id;
+    res.json({ account_id: accountId, balance: tokenSystem.getTokenBalance(accountId) });
+});
 
-const tokenSystem = new TokenSystem();
+// Route to get conversion logs
+app.get('/logs/conversions', async (req, res) => {
+    const logs = await tokenSystem.getConversionLogs();
+    res.json(logs);
+});
 
-module.exports = {
-    balance: async function (context, req) {
-        context.log('JavaScript HTTP trigger function processed a request.');
+// Route to get token deduction logs
+app.get('/logs/deductions', async (req, res) => {
+    const logs = await tokenSystem.getDeductionLogs();
+    res.json(logs);
+});
 
-        if (req.method === 'GET') {
-            const accountId = req.params.account_id;
-            const balance = tokenSystem.getTokenBalance(accountId);
-            context.res = {
-                body: { account_id: accountId, balance: balance }
-            };
-        } else {
-            context.res = {
-                status: 400,
-                body: 'Please use a GET request'
-            };
-        }
-    },
+// Route to get token accumulation logs
+app.get('/logs/accumulations', async (req, res) => {
+    const logs = await tokenSystem.getAccumulationLogs();
+    res.json(logs);
+});
 
-    conversionLogs: async function (context, req) {
-        context.log('JavaScript HTTP trigger function processed a request.');
+// Route to handle conversions
+app.post('/convert', async (req, res) => {
+    const transaction = req.body;
+    await tokenSystem.handleConversion(transaction);
+    res.json({ success: true, transaction });
+});
 
-        if (req.method === 'GET') {
-            const logs = await tokenSystem.getConversionLogs();
-            context.res = {
-                body: logs
-            };
-        } else {
-            context.res = {
-                status: 400,
-                body: 'Please use a GET request'
-            };
-        }
-    },
+// Route to handle actions
+app.post('/action', async (req, res) => {
+    const action = req.body;
+    const result = await tokenSystem.handleAction(action);
+    res.json(result);
+});
 
-    deductionLogs: async function (context, req) {
-        context.log('JavaScript HTTP trigger function processed a request.');
+// Start the Express server
+app.listen(3000, () => {
+    console.log('Express server is running on port 3000');
+});
 
-        if (req.method === 'GET') {
-            const logs = await tokenSystem.getDeductionLogs();
-            context.res = {
-                body: logs
-            };
-        } else {
-            context.res = {
-                status: 400,
-                body: 'Please use a GET request'
-            };
-        }
-    },
+// Ably WebSocket integration
+const channel = ably.channels.get('chat');
 
-    accumulationLogs: async function (context, req) {
-        context.log('JavaScript HTTP trigger function processed a request.');
-
-        if (req.method === 'GET') {
-            const logs = await tokenSystem.getAccumulationLogs();
-            context.res = {
-                body: logs
-            };
-        } else {
-            context.res = {
-                status: 400,
-                body: 'Please use a GET request'
-            };
-        }
-    },
-
-    convert: async function (context, req) {
-        context.log('JavaScript HTTP trigger function processed a request.');
-
-        if (req.method === 'POST') {
-            const transaction = req.body;
-            await tokenSystem.handleConversion(transaction);
-            context.res = {
-                body: { success: true, transaction }
-            };
-        } else {
-            context.res = {
-                status: 400,
-                body: 'Please use a POST request'
-            };
-        }
-    },
-
-    action: async function (context, req) {
-        context.log('JavaScript HTTP trigger function processed a request.');
-
-        if (req.method === 'POST') {
-            const action = req.body;
-            const result = await tokenSystem.handleAction(action);
-            context.res = {
-                body: result
-            };
-        } else {
-            context.res = {
-                status: 400,
-                body: 'Please use a POST request'
-            };
-        }
+channel.subscribe('conversion', async (message) => {
+    try {
+        const data = JSON.parse(message.data);
+        await tokenSystem.handleConversion(data.transaction);
+    } catch (error) {
+        logger.error('Error processing conversion:', error);
     }
-};
+});
+
+channel.subscribe('action', async (message) => {
+    try {
+        const data = JSON.parse(message.data);
+        const result = await tokenSystem.handleAction(data.action);
+        // Publish result back to Ably channel
+        channel.publish('action-result', JSON.stringify(result));
+    } catch (error) {
+        logger.error('Error processing action:', error);
+    }
+});
+
+console.log('Ably WebSocket integration is running');
 
